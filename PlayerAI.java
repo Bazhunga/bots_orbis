@@ -1,220 +1,389 @@
-import java.util.*;
 import java.awt.Point;
+import java.util.ArrayList;
+import java.util.HashMap;
 
 public class PlayerAI extends ClientAI {
-	int totalTurns;
+	CustomGameboard cboard;
+	int turns = 0; //first turn is turn 0, you're MAKING turn 1;
+	
+	ArrayList<CustomGameboard> preselectionList;
+	ArrayList<CustomGameboard> processingList;
+	
+	public final int TOLERANCE = 500; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
+	public final int MAX_DEPTH = 1; //the furthest you want to recurse a solution
+	
 	public PlayerAI() {
 		//Write your initialization here
-		totalTurns = -1;
 	}
 
 	@Override
 	public Move getMove(Gameboard gameboard, Opponent opponent, Player player) throws NoItemException, MapOutOfBoundsException {
-		if (totalTurns == -1){
-			// Initial state of the board
-			totalTurns = gameboard.getTurnsRemaining();
-		}
-		int x = player.getX();
-		int y = player.getY();
-		Direction d = player.getDirection();
-		Move mv = Move.NONE;
-		if (isWallAhead(d, gameboard, x, y) || isBulletDangerAhead(d, gameboard, x, y) || isTurretDangerAhead(d, gameboard, x, y)){
-			System.out.println("OH SHIT");
-			mv = turnLeft(d);
-		}
-		else {
-			mv = Move.FORWARD;
-		}
-		return mv;
-	}
-	
-	public Move turnLeft(Direction d){
-		if (d.equals(Direction.UP)){
-			return Move.FACE_LEFT;
-		}
-		else if (d.equals(Direction.RIGHT)){
-			return Move.FACE_UP;
-		}
-		else if (d.equals(Direction.DOWN)){
-			return Move.FACE_RIGHT;
-		}
-		else{
-			return Move.FACE_DOWN;
-		}	
-	}
-	
-	
-	public boolean[] checkDangers(Gameboard gameboard, Player player){
-		// List of Dangers/Places one cannot go
-		// Obvious
-		// 1. Into a wall
-		// 2. Into a turret laser
-		// 3. Staying on a tile and getting lasered
-		// Opponent Dependent
-		// 1. Into their bullets
-		// 2. Moving into a possible laser
-		// 3. 
-		// Will be true if danger lies in certain direction, false otherwise
-		// The player will be forced to take a hit if a projectile or laser will move onto their
-		// square and the dodging direction is not forward.
-		// Therefore we have to first check at least 2 squares ahead for an incoming bullet so we can pivot and dodge
-		// We have to check if there are any turrets in the column and row of the place we want to move that are firing
-		// in the next 2 turns
-		// 
-		int x = player.getX();
-		int y = player.getY();
-		boolean[] dangers = new boolean[5]; //Clockwise directions -> up/right/down/left/current
-		
-		// Check the direction
-		Direction d = player.getDirection();
-		
-		
-		
-		return dangers;
-	}
-	
-	public boolean isWallAhead(Direction d, Gameboard gameboard, int x, int y) throws MapOutOfBoundsException{
-		int moveX = 0, moveY = 0;
-		moveX = getMoveX(d);
-		moveY = getMoveY(d);
-		for (int i = 0; i < 1; i++){
-			int destX = 0, destY = 0;
-			destX = handleWrapAroundX(x, moveX, gameboard);
-			destY = handleWrapAroundY(y, moveY, gameboard);
-			if (gameboard.isWallAtTile(destX, destY)){
-				return true;
-			}
-			return false;
-		}
-		return false;
-	}
-	
-	// x and y are current coordinates. 
-	// moveX and moveY is the direction we should check for dangers
-	public boolean isBulletDangerAhead(Direction d, Gameboard gameboard, int x, int y) throws MapOutOfBoundsException{
-		int moveX = 0 ,moveY = 0;
-		moveX = getMoveX(d);
-		moveY = getMoveY(d);
-		for (int i = 0; i < 3; i++){
-			int destX = 0, destY = 0;
-			destX = handleWrapAroundX(x, moveX, gameboard);
-			destY = handleWrapAroundY(y, moveY, gameboard);
+		long startTime = System.nanoTime();
 
-			// Handle bullets
-			if (gameboard.areBulletsAtTile(destX, destY)){
-				return true;
-			}
+		turns++; //first turn is turn 0, you're MAKING turn 1;
+		if (cboard == null) {
+			cboard = new CustomGameboard(gameboard.getWidth(), gameboard.getHeight(),
+				opponent, player, gameboard.getWalls(), gameboard.getTurrets(), gameboard.getPowerUps(), 
+				gameboard.getTeleportLocations(), gameboard.getBullets());
+		} else {
+			cboard.updateCustomGameboard(opponent, player, gameboard.getTurrets(), 
+					gameboard.getPowerUps(), gameboard.getBullets());
 		}
-		return false;
-	}
-	
-	public boolean isTurretDangerAhead(Direction d, Gameboard gameboard, int x, int y) throws MapOutOfBoundsException{
-		int moveX = 0, moveY = 0;
-		moveX = getMoveX(d);
-		moveY = getMoveY(d);
-		for (int i = 1; i < 5; i++){
-			for (int j = -4; j < 5; j++){
-				int destX = 0, destY = 0;
-				destX = handleWrapAroundX(x, moveX*i, gameboard);
-				destY = handleWrapAroundY(y, moveY*j, gameboard);
-				System.out.println("t_DestX: " + destX + " t_destY " + destY);
-				try {
-					Turret trt = gameboard.getTurretAtTile(destX, destY);
-					System.out.println("TURRET FOUND AT " + destX + ", " + destY);
-					if (trt.isFiringNextTurn()){
-						return true;
-					}
-					// The turret is firing if the current turn # mod (cooldowntime + firetime) is less than the fire time
-					// This essentially shifts the time scale to the last firing cycle. If the number falls under the fire time, the 
-					// turret is firing. return false in this case
-					if (turretTurnsUntilFire(trt) < i){
-						return true;
-					}
-				} catch(NoItemException e){
-					// Do nothing, since no turret has been found
+		
+		processingList = new ArrayList<CustomGameboard>();
+		preselectionList = new ArrayList<CustomGameboard>();
+		processingList.add(cboard);
+		CustomGameboard workingBoard, maxBoard = cboard;
+		int depth = 0;
+		
+		
+		while (depth < MAX_DEPTH) {
+			depth++;
+			while (processingList.size() != 0 && (workingBoard = processingList.remove(0)) != null) {
+				for (Move move : Move.values()) {
+					cboard.checkMove(player.getHP(), move, turns);
+					preselectionList.add(workingBoard.shallowClone());
+				}
+			}
+			
+			//find max of preselection list
+			maxBoard = preselectionList.get(0);
+			for (CustomGameboard b : preselectionList) {
+				if (b.moveScore > maxBoard.moveScore) maxBoard = b;
+			}
+			
+			//break if max depth reached
+			//this prevents deep cloning unless necessary
+			if (depth >= MAX_DEPTH) break;
+			
+			//add boards within tolerance of max score to processing queue after cloning
+			while ((workingBoard = preselectionList.remove(0)) != null) {
+				//add anything within tolerance to processing list
+				if (maxBoard.moveScore - workingBoard.moveScore < TOLERANCE) {
+					//deep clone workingBoard
+					//apply move to clone
+					//add to processing list
 				}
 			}
 		}
-		return false;
-	}
+		
+		return maxBoard.move;
+		
+		/*
+		
+		long endTime = System.nanoTime();
+		long duration = (endTime - startTime);
+		if (duration/1000 > 2000) return Move.FACE_UP;
+		return Move.FACE_DOWN;
+		
+		*/
+	} 
 	
-	public int getMoveX(Direction d){
-		int moveX = 0;
-		if (d.equals(Direction.UP) || d.equals(Direction.DOWN)){
-			moveX = 0;
-		}
-		else if (d.equals(Direction.RIGHT)){
-			moveX = 1;
-		}
-		else {
-			moveX = -1;
-		}
-		return moveX;
+	public enum StaticObject {
+		EMPTY, WALL, TURRET, TELEPORTER;
 	}
-	public int getMoveY(Direction d){
-		int moveY = 0;
-		if (d.equals(Direction.UP)){
-			moveY = -1;
+
+	public class CustomGameboard {
+		public int debug = 0;
+		
+		//Static content, never needs to be changed between calls
+		//board state
+		public StaticObject[][] staticBoard;
+		public int width, height;
+		
+		//point system
+		public final int DEATH = -2500;
+		public final int GET_HIT = -750;
+		public final int KILL = 2500;
+		public final int HIT = 750;
+		public final int POWERUP = 200;
+		public final int KILL_TURRET = 500;
+		public final int MOVE = 1;
+		public final int ILLEGAL = -1;
+		public final Direction[] directions = {Direction.LEFT, Direction.RIGHT, Direction.UP, Direction.DOWN};
+		
+		
+		//Dynamic content, needs to change for every instance and update of CustomGameBoard
+		public int moveScore;
+		public Move move;
+		
+		//turret data
+		public ArrayList<Turret> turrets;
+		public HashMap<String, ArrayList<Turret>> turretKillZone;
+		public HashMap<String, Turret> turretLocations;
+		
+		//player data
+		public Point opponent, player;
+		public Direction opponentDirection, playerDirection;
+
+		//bullet data
+		public ArrayList<Point> bulletPositions;
+		public HashMap<String, Direction> bulletDirectionMap;
+		public HashMap<String, Boolean> bulletSourceMap; //0 if your own, 1 if your opponents
+		
+		//power up data
+		public HashMap<String, PowerUp> powerUpMap;
+		
+		public CustomGameboard(int width, int height, Opponent opponent, Player player,
+				ArrayList<Wall> walls, ArrayList<Turret> turrets, ArrayList<PowerUp> powerUps,
+				ArrayList<Point> teleportLocations, ArrayList<Bullet> bullets) {
+			this.width = width;
+			this.height = height;
+			this.staticBoard = new StaticObject[width][height];
+			
+			for (int i = 0; i < width; i++) {
+				for (int j = 0; j < height; j++) {
+					staticBoard[i][j] = StaticObject.EMPTY;
+				}
+			}
+			for (Wall wall : walls) {
+				staticBoard[wall.getX()][wall.getY()] = StaticObject.WALL;
+			}
+			for (Point teleportLocation : teleportLocations) {
+				staticBoard[teleportLocation.x][teleportLocation.y] = StaticObject.TELEPORTER;
+			}
+			
+			updateCustomGameboard(opponent, player, turrets, powerUps, bullets); //dynamic portion
 		}
-		else if (d.equals(Direction.DOWN)){
-			moveY = 1;
+		
+		private CustomGameboard(int width, int height, StaticObject[][] staticBoard, Move move, int moveScore) {
+			this.width = width;
+			this.height = height;
+			this.staticBoard = staticBoard;
+			this.move = move;
+			this.moveScore = moveScore;
 		}
-		else if (d.equals(Direction.RIGHT)){
-			moveY = 0;
+
+		public void updateCustomGameboard(Opponent opponent, Player player,
+				ArrayList<Turret> turrets, ArrayList<PowerUp> powerUps, ArrayList<Bullet> bullets) {
+			this.player = new Point(player.getX(), player.getY());
+			this.opponent = new Point(opponent.getX(), opponent.getY());
+			this.playerDirection = player.getDirection();
+			this.opponentDirection = opponent.getDirection();
+			
+			this.turretKillZone = new HashMap<String, ArrayList<Turret>>();
+			this.turretLocations = new HashMap<String, Turret>();
+			
+			this.bulletPositions = new ArrayList<Point>();
+			this.bulletDirectionMap = new HashMap<String, Direction>();
+			this.bulletSourceMap = new HashMap<String, Boolean>();
+			
+			this.powerUpMap = new HashMap<String, PowerUp>();
+			
+			this.moveScore = 0;
+			
+			this.turrets = turrets;
+			for (Turret turret : turrets) {
+				turretLocations.put(turret.getX() + " " + turret.getY(), turret);
+				
+				//generate turret kill map
+				//left 
+				String key;
+				int distance;
+				Point turretPoint = new Point(turret.getX(), turret.getY());
+				Point tempPoint;
+				
+				//generate turret map for each direction for each turret
+				for (Direction d : directions) {
+					distance = 0;
+					tempPoint = movePoint(new Point(turretPoint), d);
+					while(!isSolid(tempPoint) && distance <= 4) {
+						key = tempPoint.x + " " + tempPoint.y;
+						
+						if (turretKillZone.get(key) == null) {
+							turretKillZone.put(key, new ArrayList<Turret>());
+						}
+						turretKillZone.get(key).add(turret);
+						
+						movePoint(tempPoint, d);
+						distance++;
+					}
+				}
+			}
+			
+			for (PowerUp powerUp : powerUps) {
+				powerUpMap.put(powerUp.getX() + " " + powerUp.getY(), powerUp);
+			}
+			
+			for (Bullet bullet : bullets) {
+				this.bulletPositions.add(new Point(bullet.getX(), bullet.getY()));
+				this.bulletDirectionMap.put(bullet.getX() + " " + bullet.getY(), bullet.getDirection());
+				this.bulletSourceMap.put(bullet.getX() + " " + bullet.getY(), bullet.getShooter() == opponent);
+			}
 		}
-		else {
-			moveY = 0;
+		
+		public CustomGameboard shallowClone() {
+			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, move, moveScore);
+			
+			//shallow copy data
+			
+			//turret data
+			clone.turrets = turrets;
+			clone.turretKillZone = turretKillZone;
+			clone.turretLocations = turretLocations;
+			
+			//player data
+			clone.opponent = opponent;
+			clone.player = player;
+			clone.opponentDirection = opponentDirection;
+			clone.playerDirection = playerDirection;
+
+			//bullet data
+			clone.bulletPositions = bulletPositions;
+			clone.bulletDirectionMap = bulletDirectionMap;
+			clone.bulletSourceMap = bulletSourceMap; //0 if your own, 1 if your opponents
+			
+			//power up data
+			clone.powerUpMap = powerUpMap;
+			
+			return clone;
 		}
-		return moveY;
+		
+		public CustomGameboard deepClone() {
+			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, move, moveScore);
+			return clone;
+		}
+		
+		public void checkMove(int hp, Move move, int turn) {
+			this.move = move;
+			Point newPlayer = new Point(player);
+			if (move == Move.FORWARD) {
+				newPlayer = movePoint(newPlayer, playerDirection);
+				//check for death or illegal moves
+				if (isSolid(newPlayer)) {
+					moveScore += ILLEGAL;
+					return;
+				}
+				//bullet and player collide head on
+				if (bulletDirectionMap.get(newPlayer.x + " " + newPlayer.y) == opposite(playerDirection)) {
+					moveScore += ((hp == 1 ? DEATH : GET_HIT) + MOVE);
+					return;
+				}
+			}
+			
+			//Process turret death
+			if (turretKillZone.get(newPlayer.x + " " + newPlayer.y) != null) 
+				for (Turret turret : turretKillZone.get(newPlayer.x + " " + newPlayer.y)) 
+					if (isTurretOn(turret, turn)) {
+						moveScore += ((hp == 1 ? DEATH : GET_HIT) + (move == Move.FORWARD ? MOVE : 0));
+						return;
+					}
+			
+			//Process bullet death
+			//IMPORTANT: IMPLEMENT OVERLAPPING BULLETS
+			/*
+			ArrayList<Point> newBulletPositions = new ArrayList<Point>();
+			HashMap<String, Direction> newBulletDirectionMap = new HashMap<String, Direction>();
+			HashMap<String, Boolean> newBulletSourceMap = new HashMap<String, Boolean>();
+			String oldKey, newKey;
+			for (Point bulletPosition : bulletPositions) {
+				oldKey = pointToKey(bulletPosition);
+				Point newPosition = new Point(bulletPosition);
+				movePoint(newPosition, bulletDirectionMap.get(oldKey));
+				newKey = pointToKey(newPosition);
+				
+				if (newPosition.equals(newPlayer)) return true;
+				
+				if (!isSolid(newPosition)) {
+					newBulletPositions.add(newPosition);
+					newBulletDirectionMap.put(pointToKey(newPosition), bulletDirectionMap.get(oldKey));
+					newBulletSourceMap.put(pointToKey(newPosition), bulletSourceMap.get(oldKey));
+				}
+			}
+			*/
+			for (Point bulletPosition : bulletPositions) {
+				Point newPosition = new Point(bulletPosition);
+				movePoint(newPosition, bulletDirectionMap.get(pointToKey(bulletPosition)));
+				
+				if (newPosition.equals(newPlayer)) {
+					moveScore += ((hp == 1 ? DEATH : GET_HIT) + (move == Move.FORWARD ? MOVE : 0));
+					return;
+				}
+			}
+			
+			
+			if (move == Move.FORWARD) {
+				moveScore += MOVE;
+				if (powerUpMap.get(pointToKey(newPlayer)) != null)
+					moveScore += POWERUP;
+				
+				return;
+			}
+			
+			if (move == Move.SHOOT) {
+				if (checkKillTurret(newPlayer, playerDirection)) {
+					moveScore += KILL_TURRET;
+					return;
+				}
+			}
+			
+			//movescore incremented by 0
+			return;
+		}
+		
+		public boolean checkKillTurret(Point player, Direction playerDirection) {
+			Point newPlayer = new Point(player);
+			Turret t;
+			while (!isSolid(movePoint(newPlayer, playerDirection)) && !newPlayer.equals(player)) {
+				t = turretLocations.get(pointToKey(newPlayer));
+				if (t != null && !t.isDead()) return true;
+			}
+			return false;
+		}
+		
+		public boolean isTurretOn(Turret t, int turn) {
+			if (t.isDead()) return false;
+			
+			int ft = t.getFireTime();
+			int ct = t.getCooldownTime();
+			
+			return (turn - 1) % (ft + ct) < ft;
+		}
+		
+		Direction opposite(Direction d) {
+			if (d == Direction.DOWN) return Direction.UP;
+			if (d == Direction.LEFT) return Direction.RIGHT;
+			if (d == Direction.RIGHT) return Direction.LEFT;
+			return Direction.DOWN;
+		}
+		
+		public Point movePoint(Point p, Direction d) {
+			if (d == Direction.UP) {
+				p.y -= 1;
+			} else if (d == Direction.RIGHT) {
+				p.x += 1;
+			} else if (d == Direction.DOWN) {
+				p.y += 1;
+			} else { //left
+				p.x -= 1;
+			}
+			return wrapCoordinate(p);
+		}
+		
+		public String pointToKey(Point p) {
+			return p.x + " " + p.y;
+		}
+		
+		public Point wrapCoordinate(Point p) {
+			while (p.x < 0) p.x += width;
+			while (p.y < 0) p.y += height;
+					
+			p.x %= width;
+			p.y %= height;
+			
+			return p;
+		}
+		
+		public Point wrapCoordinate(int x, int y) {
+			return wrapCoordinate(new Point(x, y));
+		}
+		
+		public boolean isSolid(Point p) {
+			if (staticBoard[p.x][p.y] == StaticObject.WALL || staticBoard[p.x][p.y] == StaticObject.TURRET)
+				return true;
+			return false;
+		}
+		
 	}
-	
-	public int handleWrapAroundY(int y, int moveY, Gameboard gameboard){
-		int destY = 0;
-		if (y + moveY >= gameboard.getHeight()){
-			destY = y + moveY - gameboard.getHeight();
-		}
-		else if (y + moveY < 0){
-			destY = y + moveY + gameboard.getHeight();
-		}
-		else {
-			destY = y + moveY;
-		}
-		return destY;
-	}
-	
-	public int handleWrapAroundX(int x, int moveX, Gameboard gameboard){
-		int destX = 0;
-		if (x + moveX >= gameboard.getWidth()){
-			destX = x + moveX - gameboard.getWidth();
-		}
-		else if (x + moveX < 0){
-			destX = x + moveX + gameboard.getWidth();
-		}
-		else {
-			destX = x + moveX;
-		}
-		return destX;
-	}
-	
-	public int turretTurnsUntilFire(Turret trt){
-		if (totalTurns % (trt.getFireTime() + trt.getCooldownTime()) < trt.getFireTime()){
-			//Turret is firing, return 0
-			return 0;
-		}
-		else {
-			// Breakdown
-			// totalTurns % (trt.getFireTime() + trt.getCooldownTime()) 
-			// - Represents the amount of time elapsed since last firing cycle (Fire time + cooldown time)
-			// - This is subtracted from the firing cycle time to get the number of turns until next firing
-			return (trt.getCooldownTime() + trt.getFireTime() - (totalTurns % (trt.getFireTime() + trt.getCooldownTime())));
-		}
-	}
-	public boolean isTurretFiring(Turret trt){
-		if (totalTurns % (trt.getFireTime() + trt.getCooldownTime()) < trt.getFireTime()){
-			return true;
-		}
-		return false;
-	}
-	
-	
+
 }
