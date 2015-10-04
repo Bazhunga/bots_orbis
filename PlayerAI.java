@@ -19,7 +19,7 @@ public class PlayerAI extends ClientAI {
 			Move.FORWARD
 	};
 	
-	public final int TOLERANCE = 300; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
+	public final int TOLERANCE = 400; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
 	public final int MAX_DEPTH = 5; //the furthest you want to recurse a solution
 	
 	public PlayerAI() {
