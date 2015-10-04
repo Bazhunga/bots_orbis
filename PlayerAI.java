@@ -2,6 +2,8 @@ import java.awt.Point;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+import com.orbischallenge.game.gameObjects.TeleportPad;
+
 public class PlayerAI extends ClientAI {
 	CustomGameboard cboard;
 	int turns = 0; //first turn is turn 0, you're MAKING turn 1;
@@ -20,7 +22,7 @@ public class PlayerAI extends ClientAI {
 	};
 	
 	public final int TOLERANCE = 400; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
-	public int MAX_DEPTH = 4; //the furthest you want to recurse a solution
+	public int MAX_DEPTH = 3; //the furthest you want to recurse a solution
 	public long ctime = 0;
 	
 	public PlayerAI() {
@@ -30,8 +32,10 @@ public class PlayerAI extends ClientAI {
 	@Override
 	public Move getMove(Gameboard gameboard, Opponent opponent, Player player) throws NoItemException, MapOutOfBoundsException {
 		long startTime = System.nanoTime();
+		
 		turns++; //first turn is turn 0, you're MAKING turn 1;
-		if (ctime < 5 && MAX_DEPTH < 6) MAX_DEPTH++;
+		if (ctime < 5 && MAX_DEPTH < 7) MAX_DEPTH++;
+		if (ctime > 50 && MAX_DEPTH > 3) MAX_DEPTH--;
 		
 		if (cboard == null) {
 			cboard = new CustomGameboard(gameboard.getWidth(), gameboard.getHeight(),
@@ -90,14 +94,61 @@ public class PlayerAI extends ClientAI {
 		long endTime = System.nanoTime();
 		ctime = ((endTime - startTime)/1000000);
 		
-		if (maxBoard.firstScore < -500 && player.getShieldCount() != 0) 
-			return Move.SHIELD;
+		//emergency measures
+		if (maxBoard.firstScore < -500) {
+			if (player.getShieldCount() != 0) 
+				return Move.SHIELD;
+			if (player.getTeleportCount() != 0)
+				return emergencyTeleport(gameboard);
+		}
 		
 		//System.out.println("First score: " + maxBoard.firstScore + ", Final Score: " + maxBoard.moveScore);
 		
 		//System.out.println(ctime);
 		return maxBoard.firstMove;
 	} 
+	
+	public Move emergencyTeleport(Gameboard gameboard) {
+		int i = 0;
+		for (Point p : gameboard.getTeleportLocations()) {
+			if (cboard.turretKillZone.get(cboard.pointToKey(cboard.player)) == null) {
+				boolean hit = false;
+				for (Point bulletPosition : cboard.bulletPositions) {
+					Point newPosition = new Point(bulletPosition);
+					cboard.movePoint(newPosition, cboard.bulletDirectionMap.get(cboard.pointToKey(bulletPosition)));
+					
+					if (newPosition.equals(cboard.player)) {
+						hit = true;
+						break;
+					}
+				}
+				if (!hit) return Move.teleportToMove(i);
+			} else {
+				boolean hit = false;
+				for (Turret turret : cboard.turretKillZone.get(cboard.pointToKey(cboard.player))) {
+					if (cboard.isTurretOn(turret, turns)) {
+						hit = true;
+						break;
+					}
+				}
+				if (!hit) {
+					hit = false;
+					for (Point bulletPosition : cboard.bulletPositions) {
+						Point newPosition = new Point(bulletPosition);
+						cboard.movePoint(newPosition, cboard.bulletDirectionMap.get(cboard.pointToKey(bulletPosition)));
+						
+						if (newPosition.equals(cboard.player)) {
+							hit = true;
+							break;
+						}
+					}
+					if (!hit) return Move.teleportToMove(i);
+				}
+			}
+			i++;
+		}
+		return Move.SHOOT;
+	}
 	
 	public enum StaticObject {
 		EMPTY, WALL, TURRET, TELEPORTER;
