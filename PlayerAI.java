@@ -15,7 +15,8 @@ public class PlayerAI extends ClientAI {
 			Move.FACE_LEFT,
 			Move.FACE_RIGHT,
 			Move.SHOOT,
-			Move.FORWARD
+			Move.FORWARD,
+			Move.LASER
 	};
 	
 	public final int TOLERANCE = 400; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
@@ -86,11 +87,15 @@ public class PlayerAI extends ClientAI {
 			}
 		}
 		
-		System.out.println("First score: " + maxBoard.firstScore + ", Final Score: " + maxBoard.moveScore);
-		
 		long endTime = System.nanoTime();
 		ctime = ((endTime - startTime)/1000000);
-		System.out.println(ctime);
+		
+		if (maxBoard.firstScore < -500 && player.getShieldCount() != 0) 
+			return Move.SHIELD;
+		
+		//System.out.println("First score: " + maxBoard.firstScore + ", Final Score: " + maxBoard.moveScore);
+		
+		//System.out.println(ctime);
 		return maxBoard.firstMove;
 	} 
 	
@@ -138,6 +143,8 @@ public class PlayerAI extends ClientAI {
 		//player data
 		public Point opponent, player;
 		public Direction opponentDirection, playerDirection;
+		public Opponent opponentObj;
+		public Player playerObj;
 
 		//bullet data
 		public ArrayList<Point> bulletPositions;
@@ -186,6 +193,8 @@ public class PlayerAI extends ClientAI {
 				ArrayList<Turret> turrets, ArrayList<PowerUp> powerUps, ArrayList<Bullet> bullets) {
 			this.player = new Point(player.getX(), player.getY());
 			this.opponent = new Point(opponent.getX(), opponent.getY());
+			this.playerObj = player;
+			this.opponentObj = opponent;
 			this.playerDirection = player.getDirection();
 			this.opponentDirection = opponent.getDirection();
 			
@@ -260,6 +269,8 @@ public class PlayerAI extends ClientAI {
 			//player data
 			clone.opponent = opponent;
 			clone.player = player;
+			clone.opponentObj = opponentObj;
+			clone.playerObj = playerObj;
 			clone.opponentDirection = opponentDirection;
 			clone.playerDirection = playerDirection;
 
@@ -292,6 +303,8 @@ public class PlayerAI extends ClientAI {
 			//player data
 			clone.opponent = new Point(opponent);
 			clone.player = new Point(player);
+			clone.opponentObj = opponentObj;
+			clone.playerObj = playerObj;
 			clone.opponentDirection = opponentDirection; //the original direction values are never changed
 			clone.playerDirection = playerDirection;
 
@@ -384,16 +397,51 @@ public class PlayerAI extends ClientAI {
 			}
 			
 			//HIGH DANGER
-			Point newOpponent = new Point(opponent);
-			movePoint(newOpponent, opponentDirection);
-			if (newOpponent.equals(newPlayer)) {
+			//laser danger
+			if (opponentObj.getLaserCount() != 0) {
+				if (move == Move.FORWARD) {
+					Point front = new Point(newPlayer);
+					movePoint(front, playerDirection);
+					if (laserRange(opponent, front)) {
+						moveScore += (hp == 1 ? DEATH : GET_HIT);
+						return;
+					}
+				} else {
+					if (laserRange(opponent, newPlayer)) {
+						moveScore += (hp == 1 ? DEATH : GET_HIT);
+						return;
+					}
+				}
+			}
+			
+			//bullet danger
+			Point opponentFront = new Point(opponent);
+			movePoint(opponentFront, opponentDirection);
+			if (opponentFront.equals(newPlayer)) {
 				moveScore += DANGER1;
+				return;
+			}
+			
+			if (playerObj.getLaserCount() != 0 && move == Move.LASER && laserRange(newPlayer, opponent)) {
+				moveScore += (opponentObj.getHP() == 1 ? KILL : HIT);
 				return;
 			}
 			
 			if (move == Move.SHOOT) {
 				if (checkKillTurret(newPlayer, playerDirection)) {
 					moveScore += KILL_TURRET;
+					return;
+				}
+				
+				Point front = new Point(newPlayer);
+				movePoint(front, playerDirection);
+				if (front.equals(opponent) || front.equals(opponentFront)) {
+					moveScore += (HIT * 0.5);
+					return;
+				}
+				movePoint(front, playerDirection);
+				if (front.equals(opponent) || front.equals(opponentFront)) {
+					moveScore += (HIT * 0.25);
 					return;
 				}
 			}
@@ -420,6 +468,25 @@ public class PlayerAI extends ClientAI {
 			
 			//movescore incremented by 0
 			return;
+		}
+		
+		public boolean laserRange(Point source, Point target) {
+			if (source.x != target.x && source.y != target.y) return false;
+			Point tempPoint;
+			int distance;
+			//generate laser map for each direction for each turret
+			for (Direction d : directions) {
+				distance = 0;
+				tempPoint = movePoint(new Point(source), d);
+				while(!isSolid(tempPoint) && distance <= 4) {
+					if (tempPoint.equals(target))
+						return true;
+						
+					movePoint(tempPoint, d);
+					distance++;
+				}
+			}
+			return false;
 		}
 		
 		public boolean checkKillTurret(Point player, Direction playerDirection) {
