@@ -10,7 +10,7 @@ public class PlayerAI extends ClientAI {
 	ArrayList<CustomGameboard> processingList;
 	
 	public final int TOLERANCE = 500; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
-	public final int MAX_DEPTH = 1; //the furthest you want to recurse a solution
+	public final int MAX_DEPTH = 2; //the furthest you want to recurse a solution
 	
 	public PlayerAI() {
 		//Write your initialization here
@@ -41,7 +41,8 @@ public class PlayerAI extends ClientAI {
 			depth++;
 			while (processingList.size() != 0 && (workingBoard = processingList.remove(0)) != null) {
 				for (Move move : Move.values()) {
-					cboard.checkMove(player.getHP(), move, turns);
+					if (depth == 1) workingBoard.firstMove = move;
+					workingBoard.checkMove(player.getHP(), move, turns + depth - 1);
 					preselectionList.add(workingBoard.shallowClone());
 				}
 			}
@@ -51,32 +52,36 @@ public class PlayerAI extends ClientAI {
 			for (CustomGameboard b : preselectionList) {
 				if (b.moveScore > maxBoard.moveScore) maxBoard = b;
 			}
-			
-			//break if max depth reached
+						//break if max depth reached
 			//this prevents deep cloning unless necessary
 			if (depth >= MAX_DEPTH) break;
 			
 			//add boards within tolerance of max score to processing queue after cloning
-			while ((workingBoard = preselectionList.remove(0)) != null) {
+			while (preselectionList.size() != 0 && (workingBoard = preselectionList.remove(0)) != null) {
 				//add anything within tolerance to processing list
 				if (maxBoard.moveScore - workingBoard.moveScore < TOLERANCE) {
 					//deep clone workingBoard
+					workingBoard = workingBoard.deepClone();
+					
 					//apply move to clone
+					workingBoard.applyMove();
+					
 					//add to processing list
+					processingList.add(workingBoard);
 				}
 			}
 		}
 		
-		return maxBoard.move;
-		
+		//if (maxBoard.moveScore > 100) return Move.NONE;
+		return maxBoard.firstMove;
+		//return Move.values()[0];
 		/*
-		
 		long endTime = System.nanoTime();
 		long duration = (endTime - startTime);
 		if (duration/1000 > 2000) return Move.FACE_UP;
 		return Move.FACE_DOWN;
-		
 		*/
+		
 	} 
 	
 	public enum StaticObject {
@@ -105,7 +110,8 @@ public class PlayerAI extends ClientAI {
 		
 		//Dynamic content, needs to change for every instance and update of CustomGameBoard
 		public int moveScore;
-		public Move move;
+		public Move firstMove;
+		public Move currentMove;
 		
 		//turret data
 		public ArrayList<Turret> turrets;
@@ -146,11 +152,12 @@ public class PlayerAI extends ClientAI {
 			updateCustomGameboard(opponent, player, turrets, powerUps, bullets); //dynamic portion
 		}
 		
-		private CustomGameboard(int width, int height, StaticObject[][] staticBoard, Move move, int moveScore) {
+		private CustomGameboard(int width, int height, StaticObject[][] staticBoard, Move firstMove, Move currentMove, int moveScore) {
 			this.width = width;
 			this.height = height;
 			this.staticBoard = staticBoard;
-			this.move = move;
+			this.firstMove = firstMove;
+			this.currentMove = currentMove;
 			this.moveScore = moveScore;
 		}
 
@@ -213,7 +220,7 @@ public class PlayerAI extends ClientAI {
 		}
 		
 		public CustomGameboard shallowClone() {
-			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, move, moveScore);
+			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, firstMove, currentMove, moveScore);
 			
 			//shallow copy data
 			
@@ -240,12 +247,79 @@ public class PlayerAI extends ClientAI {
 		}
 		
 		public CustomGameboard deepClone() {
-			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, move, moveScore);
+			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, firstMove, currentMove, moveScore);
+			
+			//deep copy data
+			
+			//turret data
+			clone.turrets = turrets; // no need to deep clone this
+			clone.turretKillZone = turretKillZone; //assume this does not change, since
+				//it takes a few turns to kill a turret
+			clone.turretLocations = turretLocations; //locations do not change
+			
+			//player data
+			clone.opponent = new Point(opponent);
+			clone.player = new Point(player);
+			clone.opponentDirection = opponentDirection; //the original direction values are never changed
+			clone.playerDirection = playerDirection;
+
+			//bullet data
+			clone.bulletDirectionMap = new HashMap<String, Direction>();
+			clone.bulletSourceMap = new HashMap<String, Boolean>();
+			clone.bulletPositions = new ArrayList<Point>();
+			String key;
+			for (Point bulletPosition : bulletPositions) {
+				key = pointToKey(bulletPosition);
+				clone.bulletPositions.add(new Point(bulletPosition));
+				clone.bulletDirectionMap.put(key, bulletDirectionMap.get(key));
+				clone.bulletSourceMap.put(key, bulletSourceMap.get(key));
+			}
+			
+			//power up data
+			clone.powerUpMap = new HashMap<String, PowerUp>();
+			for (String powerUpKey : powerUpMap.keySet())
+				clone.powerUpMap.put(powerUpKey, powerUpMap.get(powerUpKey));
+			
 			return clone;
 		}
 		
+		public void applyMove() {
+			Move move = currentMove;
+			if (move == Move.FACE_DOWN || move == Move.FACE_LEFT || move == Move.FACE_UP || move == Move.FACE_RIGHT) {
+				Direction d = Move.moveToDirection(move);
+				playerDirection = d;
+			} else if (move == Move.FORWARD) {
+				movePoint(player, playerDirection);
+			} else if (move == Move.SHOOT) {
+				bulletPositions.add(player);
+				bulletDirectionMap.put(pointToKey(player), playerDirection);
+				bulletSourceMap.put(pointToKey(player), false);
+			} 
+			
+			//update bullet positions
+			ArrayList<Point> newBulletPositions = new ArrayList<Point>();
+			HashMap<String, Direction> newBulletDirectionMap = new HashMap<String, Direction>();
+			HashMap<String, Boolean> newBulletSourceMap = new HashMap<String, Boolean>();
+			String oldKey, newKey;
+			for (Point bulletPosition : bulletPositions) {
+				oldKey = pointToKey(bulletPosition);
+				Point newPosition = new Point(bulletPosition);
+				movePoint(newPosition, bulletDirectionMap.get(oldKey));
+				
+				if (!isSolid(newPosition)) {
+					newKey = pointToKey(newPosition);
+					newBulletPositions.add(newPosition);
+					newBulletDirectionMap.put(newKey, bulletDirectionMap.get(oldKey));
+					newBulletSourceMap.put(newKey, bulletSourceMap.get(oldKey));
+				}
+			}
+			bulletPositions = newBulletPositions;
+			bulletDirectionMap = newBulletDirectionMap;
+			bulletSourceMap = newBulletSourceMap;
+		}
+		
 		public void checkMove(int hp, Move move, int turn) {
-			this.move = move;
+			this.currentMove = move;
 			Point newPlayer = new Point(player);
 			if (move == Move.FORWARD) {
 				newPlayer = movePoint(newPlayer, playerDirection);
