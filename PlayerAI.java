@@ -43,18 +43,18 @@ public class PlayerAI extends ClientAI {
 		processingList = new ArrayList<CustomGameboard>();
 		preselectionList = new ArrayList<CustomGameboard>();
 		processingList.add(cboard);
-		CustomGameboard workingBoard, maxBoard = cboard;
+		CustomGameboard workingBoard, tempBoard, maxBoard = cboard;
 		int depth = 0;
 		
 		while (depth < MAX_DEPTH) {
 			depth++;
 			while (processingList.size() != 0 && (workingBoard = processingList.remove(0)) != null) {
 				for (Move move : VALID_MOVES) {
-					workingBoard = workingBoard.shallowClone();
-					if (depth == 1) workingBoard.firstMove = move;
-					workingBoard.checkMove(player.getHP(), move, turns + depth - 1);
-					if (depth == 1) workingBoard.firstScore = workingBoard.moveScore;
-					preselectionList.add(workingBoard);
+					tempBoard = workingBoard.shallowClone();
+					if (depth == 1) tempBoard.firstMove = move;
+					tempBoard.checkMove(player.getHP(), move, turns + depth - 1);
+					if (depth == 1) tempBoard.firstScore = tempBoard.moveScore;
+					preselectionList.add(tempBoard);
 				}
 			}
 				
@@ -74,13 +74,13 @@ public class PlayerAI extends ClientAI {
 				//add anything within tolerance to processing list
 				if (maxBoard.moveScore - workingBoard.moveScore < TOLERANCE) {
 					//deep clone workingBoard
-					workingBoard = workingBoard.deepClone();
+					tempBoard = workingBoard.deepClone();
 					
 					//apply move to clone
-					workingBoard.applyMove();
+					tempBoard.applyMove();
 					
 					//add to processing list
-					processingList.add(workingBoard);
+					processingList.add(tempBoard);
 				}
 			}
 		}
@@ -114,7 +114,7 @@ public class PlayerAI extends ClientAI {
 		public final int POWERUP = 200;
 		public final int KILL_TURRET = 500;
 		public final int MOVE = 10;
-		public final int ILLEGAL = -50;
+		public final int ILLEGAL = -10000;
 		public final Direction[] directions = {Direction.LEFT, Direction.RIGHT, Direction.UP, Direction.DOWN};
 		
 		
@@ -123,6 +123,9 @@ public class PlayerAI extends ClientAI {
 		public int moveScore;
 		public Move firstMove;
 		public Move currentMove;
+		
+		//public ArrayList<Integer> scores;
+		//public ArrayList<Move> moves;
 		
 		//turret data
 		public ArrayList<Turret> turrets;
