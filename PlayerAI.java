@@ -14,13 +14,13 @@ public class PlayerAI extends ClientAI {
 			Move.FACE_DOWN,
 			Move.FACE_LEFT,
 			Move.FACE_RIGHT,
-			Move.NONE,
 			Move.SHOOT,
 			Move.FORWARD
 	};
 	
 	public final int TOLERANCE = 400; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
-	public final int MAX_DEPTH = 5; //the furthest you want to recurse a solution
+	public int MAX_DEPTH = 4; //the furthest you want to recurse a solution
+	public long ctime = 0;
 	
 	public PlayerAI() {
 		//Write your initialization here
@@ -29,8 +29,9 @@ public class PlayerAI extends ClientAI {
 	@Override
 	public Move getMove(Gameboard gameboard, Opponent opponent, Player player) throws NoItemException, MapOutOfBoundsException {
 		long startTime = System.nanoTime();
-
 		turns++; //first turn is turn 0, you're MAKING turn 1;
+		if (ctime < 5 && MAX_DEPTH < 6) MAX_DEPTH++;
+		
 		if (cboard == null) {
 			cboard = new CustomGameboard(gameboard.getWidth(), gameboard.getHeight(),
 				opponent, player, gameboard.getWalls(), gameboard.getTurrets(), gameboard.getPowerUps(), 
@@ -87,10 +88,9 @@ public class PlayerAI extends ClientAI {
 		
 		System.out.println("First score: " + maxBoard.firstScore + ", Final Score: " + maxBoard.moveScore);
 		
-		
 		long endTime = System.nanoTime();
-		long duration = (endTime - startTime);
-		//System.out.println(duration/1000000);
+		ctime = ((endTime - startTime)/1000000);
+		System.out.println(ctime);
 		return maxBoard.firstMove;
 	} 
 	
@@ -113,8 +113,10 @@ public class PlayerAI extends ClientAI {
 		public final int HIT = 750;
 		public final int POWERUP = 200;
 		public final int KILL_TURRET = 500;
-		public final int MOVE = 10;
+		public final int MOVE = 1;
 		public final int ILLEGAL = -10000;
+		public final int DANGER1 = -500;
+		public final int DANGER2 = -100;
 		public final Direction[] directions = {Direction.LEFT, Direction.RIGHT, Direction.UP, Direction.DOWN};
 		
 		
@@ -362,8 +364,8 @@ public class PlayerAI extends ClientAI {
 			}
 			
 			//Process death by turret
-			if (turretKillZone.get(newPlayer.x + " " + newPlayer.y) != null) {
-				for (Turret turret : turretKillZone.get(newPlayer.x + " " + newPlayer.y)) {
+			if (turretKillZone.get(pointToKey(newPlayer)) != null) {
+				for (Turret turret : turretKillZone.get(pointToKey(newPlayer))) {
 					if (isTurretOn(turret, turn)) {
 						moveScore += ((hp == 1 ? DEATH : GET_HIT) + (move == Move.FORWARD ? MOVE : 0));
 						return;
@@ -381,6 +383,14 @@ public class PlayerAI extends ClientAI {
 				}
 			}
 			
+			//HIGH DANGER
+			Point newOpponent = new Point(opponent);
+			movePoint(newOpponent, opponentDirection);
+			if (newOpponent.equals(newPlayer)) {
+				moveScore += DANGER1;
+				return;
+			}
+			
 			if (move == Move.SHOOT) {
 				if (checkKillTurret(newPlayer, playerDirection)) {
 					moveScore += KILL_TURRET;
@@ -391,6 +401,13 @@ public class PlayerAI extends ClientAI {
 			if (isSolid(newPlayer)) {
 				moveScore += ILLEGAL;
 				return;
+			}
+			
+			if (move == Move.FACE_DOWN || move == Move.FACE_UP || move == Move.FACE_LEFT || move == Move.FACE_RIGHT) {
+				if (Move.moveToDirection(move) == playerDirection) {
+					moveScore += ILLEGAL;
+					return;
+				}
 			}
 			
 			if (move == Move.FORWARD) {
