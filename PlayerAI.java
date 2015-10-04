@@ -2,7 +2,15 @@ import java.awt.Point;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-import com.orbischallenge.game.gameObjects.TeleportPad;
+/*
+ * SUMMARY:
+ * -This solution uses a weighted greedy search algorithm
+ * -It does a breadth first search, and prunes out nodes unlikely to be good at every level/depth
+ * -The depth of the search is determined dynamically based on how long the last iteration took
+ * -Node rankings/scores are cumulative at the leaves of the decision tree
+ * -Scoring at each node in the decision tree is done using a priority system as follows, in decreasing priority:
+ * -Death, Injury, Offensive kill/hit, Turret Kills, Powerups, Movement
+ */
 
 public class PlayerAI extends ClientAI {
 	CustomGameboard cboard;
@@ -11,6 +19,7 @@ public class PlayerAI extends ClientAI {
 	ArrayList<CustomGameboard> preselectionList;
 	ArrayList<CustomGameboard> processingList;
 	
+	//moves our bot is allowed to make under normal circumstances
 	public final Move[] VALID_MOVES = { 
 			Move.FACE_UP,
 			Move.FACE_DOWN,
@@ -22,7 +31,7 @@ public class PlayerAI extends ClientAI {
 	};
 	
 	public final int TOLERANCE = 400; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
-	public int MAX_DEPTH = 3; //the furthest you want to recurse a solution
+	public int MAX_DEPTH = 3; //the furthest you want to recurse a solution using the greedy algorithm
 	public long ctime = 0;
 	
 	public PlayerAI() {
