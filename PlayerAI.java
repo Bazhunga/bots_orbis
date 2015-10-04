@@ -50,17 +50,12 @@ public class PlayerAI extends ClientAI {
 			depth++;
 			while (processingList.size() != 0 && (workingBoard = processingList.remove(0)) != null) {
 				for (Move move : VALID_MOVES) {
+					workingBoard = workingBoard.shallowClone();
 					if (depth == 1) workingBoard.firstMove = move;
 					workingBoard.checkMove(player.getHP(), move, turns + depth - 1);
 					if (depth == 1) workingBoard.firstScore = workingBoard.moveScore;
-					preselectionList.add(workingBoard.shallowClone());
+					preselectionList.add(workingBoard);
 				}
-				/*
-				System.out.println("Depth: " + depth);
-				for (CustomGameboard b : preselectionList) {
-					System.out.println(b.firstMove.toString());
-				}
-				*/
 			}
 				
 			//find max of preselection list
@@ -68,6 +63,7 @@ public class PlayerAI extends ClientAI {
 			for (CustomGameboard b : preselectionList) {
 				if (b.moveScore > maxBoard.moveScore || (b.moveScore == maxBoard.moveScore && b.firstScore > maxBoard.firstScore)) maxBoard = b;
 			}
+			
 		
 			//break if max depth reached
 			//this prevents deep cloning unless necessary
@@ -89,12 +85,12 @@ public class PlayerAI extends ClientAI {
 			}
 		}
 		
-		//System.out.println("First score: " + maxBoard.firstScore + ", Final Score: " + maxBoard.moveScore);
+		System.out.println("First score: " + maxBoard.firstScore + ", Final Score: " + maxBoard.moveScore);
 		
 		
 		long endTime = System.nanoTime();
 		long duration = (endTime - startTime);
-		System.out.println(duration/1000000);
+		//System.out.println(duration/1000000);
 		return maxBoard.firstMove;
 	} 
 	
@@ -132,6 +128,7 @@ public class PlayerAI extends ClientAI {
 		public ArrayList<Turret> turrets;
 		public HashMap<String, ArrayList<Turret>> turretKillZone;
 		public HashMap<String, Turret> turretLocations;
+		public HashMap<String, Boolean> turretOffline;
 		
 		//player data
 		public Point opponent, player;
@@ -189,6 +186,7 @@ public class PlayerAI extends ClientAI {
 			
 			this.turretKillZone = new HashMap<String, ArrayList<Turret>>();
 			this.turretLocations = new HashMap<String, Turret>();
+			this.turretOffline = new HashMap<String, Boolean>();
 			
 			this.bulletPositions = new ArrayList<Point>();
 			this.bulletDirectionMap = new HashMap<String, Direction>();
@@ -206,8 +204,10 @@ public class PlayerAI extends ClientAI {
 				//left 
 				String key;
 				int distance;
-				Point turretPoint = new Point(turret.getX(), turret.getY());
 				Point tempPoint;
+				Point turretPoint = new Point(turret.getX(), turret.getY());
+				
+				if (turret.isDead()) turretOffline.put(pointToKey(turretPoint), true);
 				
 				//generate turret map for each direction for each turret
 				for (Direction d : directions) {
@@ -247,6 +247,10 @@ public class PlayerAI extends ClientAI {
 			clone.turrets = turrets;
 			clone.turretKillZone = turretKillZone;
 			clone.turretLocations = turretLocations;
+			clone.turretOffline = new HashMap<String, Boolean>();
+			for (String key : turretOffline.keySet()) {
+				clone.turretOffline.put(key, turretOffline.get(key));
+			}
 			
 			//player data
 			clone.opponent = opponent;
@@ -274,7 +278,11 @@ public class PlayerAI extends ClientAI {
 			clone.turrets = turrets; // no need to deep clone this
 			clone.turretKillZone = turretKillZone; //assume this does not change, since
 				//it takes a few turns to kill a turret
-			clone.turretLocations = turretLocations; //locations do not change
+			clone.turretLocations = turretLocations; 
+			clone.turretOffline = new HashMap<String, Boolean>();
+			for (String key : turretOffline.keySet()) {
+				clone.turretOffline.put(key, turretOffline.get(key));
+			}
 			
 			//player data
 			clone.opponent = new Point(opponent);
@@ -355,13 +363,15 @@ public class PlayerAI extends ClientAI {
 				}
 			}
 			
-			//Process turret death
-			if (turretKillZone.get(newPlayer.x + " " + newPlayer.y) != null) 
-				for (Turret turret : turretKillZone.get(newPlayer.x + " " + newPlayer.y)) 
+			//Process death by turret
+			if (turretKillZone.get(newPlayer.x + " " + newPlayer.y) != null) {
+				for (Turret turret : turretKillZone.get(newPlayer.x + " " + newPlayer.y)) {
 					if (isTurretOn(turret, turn)) {
 						moveScore += ((hp == 1 ? DEATH : GET_HIT) + (move == Move.FORWARD ? MOVE : 0));
 						return;
 					}
+				}
+			}
 			
 			for (Point bulletPosition : bulletPositions) {
 				Point newPosition = new Point(bulletPosition);
@@ -393,12 +403,18 @@ public class PlayerAI extends ClientAI {
 		}
 		
 		public boolean checkKillTurret(Point player, Direction playerDirection) {
+			/*
 			Point newPlayer = new Point(player);
 			Turret t;
-			while (!isSolid(movePoint(newPlayer, playerDirection)) && !newPlayer.equals(player)) {
-				t = turretLocations.get(pointToKey(newPlayer));
-				if (t != null && !t.isDead()) return true;
+			
+			while (!isSolid(movePoint(newPlayer, playerDirection)) && !newPlayer.equals(player));
+			
+			t = turretLocations.get(pointToKey(newPlayer));
+			if (t != null && turretOffline.get(pointToKey(newPlayer)) == null) {
+				turretOffline.put(pointToKey(newPlayer), true);
+				return true;
 			}
+			*/
 			return false;
 		}
 		
