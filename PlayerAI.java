@@ -351,12 +351,7 @@ public class PlayerAI extends ClientAI {
 			Point newPlayer = new Point(player);
 			if (move == Move.FORWARD) {
 				newPlayer = movePoint(newPlayer, playerDirection);
-				//check for death or illegal moves
-				if (isSolid(newPlayer)) {
-					moveScore += ILLEGAL;
-					return;
-				}
-				//bullet and player collide head on
+				//check for death by bullet collision
 				if (bulletDirectionMap.get(newPlayer.x + " " + newPlayer.y) == opposite(playerDirection)) {
 					moveScore += ((hp == 1 ? DEATH : GET_HIT) + MOVE);
 					return;
@@ -383,6 +378,18 @@ public class PlayerAI extends ClientAI {
 				}
 			}
 			
+			if (move == Move.SHOOT) {
+				if (checkKillTurret(newPlayer, playerDirection)) {
+					moveScore += KILL_TURRET;
+					return;
+				}
+			}
+			
+			if (isSolid(newPlayer)) {
+				moveScore += ILLEGAL;
+				return;
+			}
+			
 			if (move == Move.FORWARD) {
 				moveScore += MOVE;
 				if (powerUpMap.get(pointToKey(newPlayer)) != null)
@@ -391,19 +398,12 @@ public class PlayerAI extends ClientAI {
 				return;
 			}
 			
-			if (move == Move.SHOOT) {
-				if (checkKillTurret(newPlayer, playerDirection)) {
-					moveScore += KILL_TURRET;
-					return;
-				}
-			}
-			
 			//movescore incremented by 0
 			return;
 		}
 		
 		public boolean checkKillTurret(Point player, Direction playerDirection) {
-			/*
+
 			Point newPlayer = new Point(player);
 			Turret t;
 			
@@ -414,7 +414,7 @@ public class PlayerAI extends ClientAI {
 				turretOffline.put(pointToKey(newPlayer), true);
 				return true;
 			}
-			*/
+			
 			return false;
 		}
 		
