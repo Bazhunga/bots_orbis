@@ -9,8 +9,18 @@ public class PlayerAI extends ClientAI {
 	ArrayList<CustomGameboard> preselectionList;
 	ArrayList<CustomGameboard> processingList;
 	
-	public final int TOLERANCE = 500; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
-	public final int MAX_DEPTH = 2; //the furthest you want to recurse a solution
+	public final Move[] VALID_MOVES = { 
+			Move.FACE_UP,
+			Move.FACE_DOWN,
+			Move.FACE_LEFT,
+			Move.FACE_RIGHT,
+			Move.NONE,
+			Move.SHOOT,
+			Move.FORWARD
+	};
+	
+	public final int TOLERANCE = 300; //tolerance of the greedy algorithm. The lower this number is, the faster it runs
+	public final int MAX_DEPTH = 5; //the furthest you want to recurse a solution
 	
 	public PlayerAI() {
 		//Write your initialization here
@@ -36,23 +46,30 @@ public class PlayerAI extends ClientAI {
 		CustomGameboard workingBoard, maxBoard = cboard;
 		int depth = 0;
 		
-		
 		while (depth < MAX_DEPTH) {
 			depth++;
 			while (processingList.size() != 0 && (workingBoard = processingList.remove(0)) != null) {
-				for (Move move : Move.values()) {
+				for (Move move : VALID_MOVES) {
 					if (depth == 1) workingBoard.firstMove = move;
 					workingBoard.checkMove(player.getHP(), move, turns + depth - 1);
+					if (depth == 1) workingBoard.firstScore = workingBoard.moveScore;
 					preselectionList.add(workingBoard.shallowClone());
 				}
+				/*
+				System.out.println("Depth: " + depth);
+				for (CustomGameboard b : preselectionList) {
+					System.out.println(b.firstMove.toString());
+				}
+				*/
 			}
-			
+				
 			//find max of preselection list
 			maxBoard = preselectionList.get(0);
 			for (CustomGameboard b : preselectionList) {
-				if (b.moveScore > maxBoard.moveScore) maxBoard = b;
+				if (b.moveScore > maxBoard.moveScore || (b.moveScore == maxBoard.moveScore && b.firstScore > maxBoard.firstScore)) maxBoard = b;
 			}
-						//break if max depth reached
+		
+			//break if max depth reached
 			//this prevents deep cloning unless necessary
 			if (depth >= MAX_DEPTH) break;
 			
@@ -72,16 +89,13 @@ public class PlayerAI extends ClientAI {
 			}
 		}
 		
-		//if (maxBoard.moveScore > 100) return Move.NONE;
-		return maxBoard.firstMove;
-		//return Move.values()[0];
-		/*
+		//System.out.println("First score: " + maxBoard.firstScore + ", Final Score: " + maxBoard.moveScore);
+		
+		
 		long endTime = System.nanoTime();
 		long duration = (endTime - startTime);
-		if (duration/1000 > 2000) return Move.FACE_UP;
-		return Move.FACE_DOWN;
-		*/
-		
+		System.out.println(duration/1000000);
+		return maxBoard.firstMove;
 	} 
 	
 	public enum StaticObject {
@@ -103,12 +117,13 @@ public class PlayerAI extends ClientAI {
 		public final int HIT = 750;
 		public final int POWERUP = 200;
 		public final int KILL_TURRET = 500;
-		public final int MOVE = 1;
-		public final int ILLEGAL = -1;
+		public final int MOVE = 10;
+		public final int ILLEGAL = -50;
 		public final Direction[] directions = {Direction.LEFT, Direction.RIGHT, Direction.UP, Direction.DOWN};
 		
 		
 		//Dynamic content, needs to change for every instance and update of CustomGameBoard
+		public int firstScore;
 		public int moveScore;
 		public Move firstMove;
 		public Move currentMove;
@@ -148,17 +163,21 @@ public class PlayerAI extends ClientAI {
 			for (Point teleportLocation : teleportLocations) {
 				staticBoard[teleportLocation.x][teleportLocation.y] = StaticObject.TELEPORTER;
 			}
+			for (Turret turret : turrets) {
+				staticBoard[turret.getX()][turret.getY()] = StaticObject.TURRET;
+			}
 			
 			updateCustomGameboard(opponent, player, turrets, powerUps, bullets); //dynamic portion
 		}
 		
-		private CustomGameboard(int width, int height, StaticObject[][] staticBoard, Move firstMove, Move currentMove, int moveScore) {
+		private CustomGameboard(int width, int height, StaticObject[][] staticBoard, Move firstMove, Move currentMove, int firstScore, int moveScore) {
 			this.width = width;
 			this.height = height;
 			this.staticBoard = staticBoard;
 			this.firstMove = firstMove;
 			this.currentMove = currentMove;
 			this.moveScore = moveScore;
+			this.firstScore = firstScore;
 		}
 
 		public void updateCustomGameboard(Opponent opponent, Player player,
@@ -220,7 +239,7 @@ public class PlayerAI extends ClientAI {
 		}
 		
 		public CustomGameboard shallowClone() {
-			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, firstMove, currentMove, moveScore);
+			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, firstMove, currentMove, firstScore, moveScore);
 			
 			//shallow copy data
 			
@@ -247,7 +266,7 @@ public class PlayerAI extends ClientAI {
 		}
 		
 		public CustomGameboard deepClone() {
-			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, firstMove, currentMove, moveScore);
+			CustomGameboard clone = new CustomGameboard(width, height, staticBoard, firstMove, currentMove, firstScore, moveScore);
 			
 			//deep copy data
 			
@@ -290,6 +309,7 @@ public class PlayerAI extends ClientAI {
 				playerDirection = d;
 			} else if (move == Move.FORWARD) {
 				movePoint(player, playerDirection);
+				powerUpMap.put(pointToKey(player), null);
 			} else if (move == Move.SHOOT) {
 				bulletPositions.add(player);
 				bulletDirectionMap.put(pointToKey(player), playerDirection);
@@ -343,28 +363,6 @@ public class PlayerAI extends ClientAI {
 						return;
 					}
 			
-			//Process bullet death
-			//IMPORTANT: IMPLEMENT OVERLAPPING BULLETS
-			/*
-			ArrayList<Point> newBulletPositions = new ArrayList<Point>();
-			HashMap<String, Direction> newBulletDirectionMap = new HashMap<String, Direction>();
-			HashMap<String, Boolean> newBulletSourceMap = new HashMap<String, Boolean>();
-			String oldKey, newKey;
-			for (Point bulletPosition : bulletPositions) {
-				oldKey = pointToKey(bulletPosition);
-				Point newPosition = new Point(bulletPosition);
-				movePoint(newPosition, bulletDirectionMap.get(oldKey));
-				newKey = pointToKey(newPosition);
-				
-				if (newPosition.equals(newPlayer)) return true;
-				
-				if (!isSolid(newPosition)) {
-					newBulletPositions.add(newPosition);
-					newBulletDirectionMap.put(pointToKey(newPosition), bulletDirectionMap.get(oldKey));
-					newBulletSourceMap.put(pointToKey(newPosition), bulletSourceMap.get(oldKey));
-				}
-			}
-			*/
 			for (Point bulletPosition : bulletPositions) {
 				Point newPosition = new Point(bulletPosition);
 				movePoint(newPosition, bulletDirectionMap.get(pointToKey(bulletPosition)));
@@ -374,7 +372,6 @@ public class PlayerAI extends ClientAI {
 					return;
 				}
 			}
-			
 			
 			if (move == Move.FORWARD) {
 				moveScore += MOVE;
